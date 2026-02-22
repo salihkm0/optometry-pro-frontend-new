@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, Calendar, Download, Trash2 } from 'lucide-react';
 import axiosClient from '../../../api/axiosClient';
@@ -24,10 +24,31 @@ export default function RecordList() {
     total: 0,
     pages: 1,
   });
+  
+  // Use ref to track initial mount and prevent unnecessary calls
+  const isInitialMount = useRef(true);
+  // Use ref to track if we're currently fetching to prevent duplicate calls
+  const isFetching = useRef(false);
+  // Use ref to store the current filter state for comparison
+  const filterState = useRef({
+    page: 1,
+    status: '',
+    examinationType: '',
+    startDate: '',
+    endDate: '',
+    search: ''
+  });
 
-  // Fetch records with dependencies
-  const fetchRecords = useCallback(async () => {
+  // Fetch records function
+  const fetchRecords = useCallback(async (isRetry = false) => {
+    // Prevent duplicate simultaneous calls
+    if (isFetching.current && !isRetry) {
+      console.log('Already fetching, skipping...');
+      return;
+    }
+
     try {
+      isFetching.current = true;
       setLoading(true);
       
       const params = {
@@ -66,47 +87,95 @@ export default function RecordList() {
       toast.error('Failed to load records');
     } finally {
       setLoading(false);
+      isFetching.current = false;
     }
   }, [pagination.page, pagination.limit, statusFilter, examinationType, startDate, endDate, searchQuery, user.shop]);
 
-  // Initial fetch and when filters change
+  // Single effect to handle all data fetching
   useEffect(() => {
-    fetchRecords();
-  }, [pagination.page, statusFilter, examinationType, startDate, endDate, fetchRecords]);
+    // Check if filters actually changed to prevent unnecessary calls
+    const currentFilterState = {
+      page: pagination.page,
+      status: statusFilter,
+      examinationType: examinationType,
+      startDate: startDate,
+      endDate: endDate,
+      search: searchQuery
+    };
+
+    // Skip if this is the initial mount and we want to load data
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      filterState.current = currentFilterState;
+      fetchRecords();
+      return;
+    }
+
+    // Check if filters actually changed
+    const filtersChanged = JSON.stringify(filterState.current) !== JSON.stringify(currentFilterState);
+    
+    if (filtersChanged) {
+      filterState.current = currentFilterState;
+      fetchRecords();
+    }
+  }, [pagination.page, statusFilter, examinationType, startDate, endDate, searchQuery, fetchRecords]);
 
   // Debounced search
   useEffect(() => {
+    // Don't run on initial mount
+    if (isInitialMount.current) return;
+
     const timer = setTimeout(() => {
-      if (searchQuery !== undefined) {
+      if (searchQuery !== filterState.current.search) {
         setPagination(prev => ({ ...prev, page: 1 }));
-        fetchRecords();
+        // The page change will trigger the main effect
       }
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, fetchRecords]);
+  }, [searchQuery]);
 
   const handleSearch = (e) => {
     e.preventDefault();
     setPagination(prev => ({ ...prev, page: 1 }));
-    fetchRecords();
+    // The state change will trigger the main effect
   };
 
   const handlePageChange = (page) => {
+    // Prevent unnecessary updates if it's the same page
+    if (page === pagination.page) return;
+    
     setPagination(prev => ({ ...prev, page }));
+    // The state change will trigger the main effect
   };
 
   const handleFilterChange = (filterType, value) => {
     // Reset specific filter and page
-    if (filterType === 'status') setStatusFilter(value);
-    if (filterType === 'examinationType') setExaminationType(value);
-    if (filterType === 'startDate') setStartDate(value);
-    if (filterType === 'endDate') setEndDate(value);
+    if (filterType === 'status') {
+      if (value === statusFilter) return; // No change
+      setStatusFilter(value);
+    }
+    if (filterType === 'examinationType') {
+      if (value === examinationType) return; // No change
+      setExaminationType(value);
+    }
+    if (filterType === 'startDate') {
+      if (value === startDate) return; // No change
+      setStartDate(value);
+    }
+    if (filterType === 'endDate') {
+      if (value === endDate) return; // No change
+      setEndDate(value);
+    }
     
     setPagination(prev => ({ ...prev, page: 1 }));
+    // The state changes will trigger the main effect
   };
 
   const handleResetFilters = () => {
+    // Only reset if any filter is actually set
+    if (!statusFilter && !examinationType && !startDate && !endDate && !searchQuery) return;
+
     setStatusFilter('');
     setExaminationType('');
     setStartDate('');
@@ -146,6 +215,9 @@ export default function RecordList() {
         // If current page becomes empty, go to previous page
         if (records.length === 1 && pagination.page > 1) {
           setPagination(prev => ({ ...prev, page: prev.page - 1 }));
+        } else {
+          // Refresh the current page to get updated data
+          fetchRecords(true);
         }
       } else {
         toast.error(response.message || 'Failed to delete record');

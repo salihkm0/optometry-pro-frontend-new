@@ -26,7 +26,7 @@ export default function Sidebar({ isAdmin }) {
     { to: '/shop/customers', icon: Users, label: 'Customers' },
     { to: '/shop/records', icon: FileText, label: 'Records' },
     // { to: '/shop/billing', icon: CreditCard, label: 'Billing' }, 
-    { to: '/shop/settings', icon: Settings, label: 'Settings' }, 
+    // { to: '/shop/settings', icon: Settings, label: 'Settings' }, 
   ];
 
   const navItems = isAdmin ? adminNavItems : shopNavItems;
