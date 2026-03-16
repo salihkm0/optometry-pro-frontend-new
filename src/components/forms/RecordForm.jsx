@@ -1,6 +1,6 @@
 import { useForm } from 'react-hook-form';
 import { useState, useEffect } from 'react';
-import { Save, Search, Eye, Plus, Minus } from 'lucide-react';
+import { Save, Search, Eye } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import endpoints from '../../api/endpoints';
 
@@ -9,8 +9,12 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
-  const [showAddFields, setShowAddFields] = useState(false);
-  const [showNVFields, setShowNVFields] = useState(false);
+  const [calculatedAmounts, setCalculatedAmounts] = useState({
+    subtotal: 0,
+    discountAmount: 0,
+    discountedAmount: 0,
+    due: 0,
+  });
 
   const { register, handleSubmit, formState: { errors }, setValue, watch, reset } = useForm({
     defaultValues: {
@@ -18,7 +22,7 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
       date: record?.date ? record.date.split('T')[0] : new Date().toISOString().split('T')[0],
       examinationType: record?.examinationType || 'routine',
       prescriptionType: record?.prescriptionType || 'distance',
-      // Right Eye DV
+      // Right Eye
       right_eye: record?.right_eye || {
         dv: {
           sph: '',
@@ -31,15 +35,9 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
           cyl: '',
           axis: '',
           va: '',
-        },
-        nv: {
-          sph: '',
-          cyl: '',
-          axis: '',
-          va: '',
         }
       },
-      // Left Eye DV
+      // Left Eye
       left_eye: record?.left_eye || {
         dv: {
           sph: '',
@@ -48,12 +46,6 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
           va: '',
         },
         add: {
-          sph: '',
-          cyl: '',
-          axis: '',
-          va: '',
-        },
-        nv: {
           sph: '',
           cyl: '',
           axis: '',
@@ -67,8 +59,8 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
       base: record?.base || '',
       // Billing
       billing: {
-        amount: record?.billing?.amount || '',
-        paid: record?.billing?.paid || '',
+        amount: record?.billing?.amount || 0,
+        paid: record?.billing?.paid || 0,
         discount: record?.billing?.discount || 0,
         paymentMethod: record?.billing?.paymentMethod || 'cash',
       },
@@ -78,8 +70,33 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
       notes: record?.notes || '',
       recommendations: record?.recommendations || '',
       diagnosis: record?.diagnosis || '',
+      followUpNotes: record?.followUpNotes || '',
     }
   });
+
+  // Watch billing fields for calculations
+  const amount = watch('billing.amount');
+  const discount = watch('billing.discount');
+  const paid = watch('billing.paid');
+
+  // Calculate amounts whenever billing fields change
+  useEffect(() => {
+    const numAmount = parseFloat(amount) || 0;
+    const numDiscount = parseFloat(discount) || 0;
+    const numPaid = parseFloat(paid) || 0;
+
+    // Calculate discount amount (percentage)
+    const discountAmount = (numAmount * numDiscount) / 100;
+    const discountedAmount = numAmount - discountAmount;
+    const due = discountedAmount - numPaid;
+
+    setCalculatedAmounts({
+      subtotal: numAmount,
+      discountAmount: discountAmount,
+      discountedAmount: discountedAmount,
+      due: due,
+    });
+  }, [amount, discount, paid]);
 
   useEffect(() => {
     if (record) {
@@ -91,20 +108,21 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
         prescriptionType: record.prescriptionType || 'distance',
         right_eye: record.right_eye || {
           dv: { sph: '', cyl: '', axis: '', va: '' },
-          add: { sph: '', cyl: '', axis: '', va: '' },
-          nv: { sph: '', cyl: '', axis: '', va: '' }
+          add: { sph: '', cyl: '', axis: '', va: '' }
         },
         left_eye: record.left_eye || {
           dv: { sph: '', cyl: '', axis: '', va: '' },
-          add: { sph: '', cyl: '', axis: '', va: '' },
-          nv: { sph: '', cyl: '', axis: '', va: '' }
+          add: { sph: '', cyl: '', axis: '', va: '' }
         },
         pd: record.pd || '',
         ph: record.ph || '',
         prism: record.prism || '',
         base: record.base || '',
         billing: record.billing || {
-          amount: '', paid: '', discount: 0, paymentMethod: 'cash'
+          amount: 0, 
+          paid: 0, 
+          discount: 0, 
+          paymentMethod: 'cash'
         },
         status: record.status || 'draft',
         nextAppointment: record.nextAppointment ? record.nextAppointment.split('T')[0] : '',
@@ -112,17 +130,9 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
         notes: record.notes || '',
         recommendations: record.recommendations || '',
         diagnosis: record.diagnosis || '',
+        followUpNotes: record.followUpNotes || '',
       });
       setSelectedCustomer(record.customer || null);
-      
-      // Show ADD fields if they have data
-      if (record.right_eye?.add?.sph || record.left_eye?.add?.sph) {
-        setShowAddFields(true);
-      }
-      // Show NV fields if they have data
-      if (record.right_eye?.nv?.sph || record.left_eye?.nv?.sph) {
-        setShowNVFields(true);
-      }
     } else if (customerId) {
       // If we have customerId from query params, try to fetch customer
       fetchCustomerById(customerId);
@@ -389,24 +399,6 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
       <div className="card">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold text-gray-900">Eye Measurements</h2>
-          <div className="flex space-x-2">
-            <button
-              type="button"
-              onClick={() => setShowAddFields(!showAddFields)}
-              className="inline-flex items-center px-3 py-1 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
-            >
-              {showAddFields ? <Minus className="h-3 w-3 mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
-              {showAddFields ? 'Hide ADD' : 'Show ADD'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNVFields(!showNVFields)}
-              className="inline-flex items-center px-3 py-1 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
-            >
-              {showNVFields ? <Minus className="h-3 w-3 mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
-              {showNVFields ? 'Hide NV' : 'Show NV'}
-            </button>
-          </div>
         </div>
         
         <div className="overflow-x-auto">
@@ -436,7 +428,7 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
             <tbody className="bg-white divide-y divide-gray-200">
               {/* DV Row */}
               <tr>
-                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">Dv</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">DV</td>
                 
                 {/* Right Eye DV */}
                 <td className="px-3 py-2">
@@ -507,155 +499,78 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
                 </td>
               </tr>
               
-              {/* ADD Row - Conditionally Shown */}
-              {showAddFields && (
-                <tr>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">Add</td>
-                  
-                  {/* Right Eye Add */}
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('right_eye.add.sph')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder="+1.50"
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('right_eye.add.cyl')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('right_eye.add.axis')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2 border-r">
-                    <input
-                      type="text"
-                      {...register('right_eye.add.va')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder="N6"
-                    />
-                  </td>
-                  
-                  {/* Left Eye Add */}
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.add.sph')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder="+1.50"
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.add.cyl')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.add.axis')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.add.va')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder="N6"
-                    />
-                  </td>
-                </tr>
-              )}
-
-              {/* NV Row - Conditionally Shown */}
-              {showNVFields && (
-                <tr>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">Nv</td>
-                  
-                  {/* Right Eye NV */}
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('right_eye.nv.sph')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('right_eye.nv.cyl')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('right_eye.nv.axis')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2 border-r">
-                    <input
-                      type="text"
-                      {...register('right_eye.nv.va')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  
-                  {/* Left Eye NV */}
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.nv.sph')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.nv.cyl')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.nv.axis')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="text"
-                      {...register('left_eye.nv.va')}
-                      className="input-field text-center w-full px-1 py-1"
-                      placeholder=""
-                    />
-                  </td>
-                </tr>
-              )}
+              {/* ADD Row - Always visible */}
+              <tr>
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">ADD</td>
+                
+                {/* Right Eye Add */}
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('right_eye.add.sph')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder="+1.50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('right_eye.add.cyl')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder=""
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('right_eye.add.axis')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder=""
+                  />
+                </td>
+                <td className="px-3 py-2 border-r">
+                  <input
+                    type="text"
+                    {...register('right_eye.add.va')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder="N6"
+                  />
+                </td>
+                
+                {/* Left Eye Add */}
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('left_eye.add.sph')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder="+1.50"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('left_eye.add.cyl')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder=""
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('left_eye.add.axis')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder=""
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="text"
+                    {...register('left_eye.add.va')}
+                    className="input-field text-center w-full px-1 py-1"
+                    placeholder="N6"
+                  />
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -766,60 +681,118 @@ export default function RecordForm({ record, onSubmit, isLoading, isAdmin, shops
       <div className="card">
         <h2 className="text-lg font-semibold text-gray-900 mb-6">Billing Information</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Amount ($)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              {...register('billing.amount')}
-              className="input-field"
-              placeholder="0.00"
-            />
+        <div className="space-y-4">
+          {/* Main Billing Row */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Total Amount (Rs)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('billing.amount')}
+                className="input-field"
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Discount (%)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                {...register('billing.discount')}
+                className="input-field"
+                placeholder="0"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Discounted Amount (Rs)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={calculatedAmounts.discountedAmount?.toFixed(2) || '0.00'}
+                className="input-field bg-gray-100"
+                placeholder="0.00"
+                readOnly
+                disabled
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Paid Amount (Rs)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('billing.paid')}
+                className="input-field"
+                placeholder="0.00"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Paid ($)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              {...register('billing.paid')}
-              className="input-field"
-              placeholder="0.00"
-            />
+          {/* Payment Method */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Method
+              </label>
+              <select
+                {...register('billing.paymentMethod')}
+                className="input-field"
+              >
+                <option value="cash">Cash</option>
+                <option value="card">Card</option>
+                <option value="insurance">Insurance</option>
+                <option value="online">Online</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Discount (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              {...register('billing.discount')}
-              className="input-field"
-              placeholder="0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Payment Method
-            </label>
-            <select
-              {...register('billing.paymentMethod')}
-              className="input-field"
-            >
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="insurance">Insurance</option>
-              <option value="online">Online</option>
-              <option value="other">Other</option>
-            </select>
+          {/* Billing Summary */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-gray-50 p-3 rounded-md">
+                <p className="text-xs text-gray-500">Total Amount</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  Rs {calculatedAmounts.subtotal?.toFixed(2) || '0.00'}
+                </p>
+              </div>
+              <div className="bg-gray-50 p-3 rounded-md">
+                <p className="text-xs text-gray-500">Discount</p>
+                <p className="text-lg font-semibold text-red-600">
+                  - Rs {calculatedAmounts.discountAmount?.toFixed(2) || '0.00'}
+                  <span className="text-xs text-gray-500 ml-1">
+                    ({discount || 0}%)
+                  </span>
+                </p>
+              </div>
+              <div className="bg-gray-50 p-3 rounded-md">
+                <p className="text-xs text-gray-500">Discounted Amount</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  Rs {calculatedAmounts.discountedAmount?.toFixed(2) || '0.00'}
+                </p>
+              </div>
+              <div className="bg-gray-50 p-3 rounded-md">
+                <p className="text-xs text-gray-500">Balance Due</p>
+                <p className={`text-lg font-semibold ${(calculatedAmounts.due || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  Rs {calculatedAmounts.due?.toFixed(2) || '0.00'}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

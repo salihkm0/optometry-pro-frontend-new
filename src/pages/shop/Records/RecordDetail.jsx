@@ -12,10 +12,46 @@ export default function ShopRecordDetail() {
   const [record, setRecord] = useState(null);
   const [loading, setLoading] = useState(true);
   const [printing, setPrinting] = useState(false);
+  const [calculatedBilling, setCalculatedBilling] = useState({
+    subtotal: 0,
+    discountAmount: 0,
+    discountedAmount: 0,
+    due: 0
+  });
 
   useEffect(() => {
     fetchRecord();
   }, [id]);
+
+  useEffect(() => {
+    if (record?.billing) {
+      calculateBilling(record.billing);
+    }
+  }, [record]);
+
+  const calculateBilling = (billing) => {
+    const amount = parseFloat(billing.amount) || 0;
+    const discount = parseFloat(billing.discount) || 0;
+    const paid = parseFloat(billing.paid) || 0;
+    const discountType = billing.discountType || 'percentage';
+
+    let discountAmount = 0;
+    if (discountType === 'percentage') {
+      discountAmount = (amount * discount) / 100;
+    } else {
+      discountAmount = discount;
+    }
+
+    const discountedAmount = amount - discountAmount;
+    const due = discountedAmount - paid;
+
+    setCalculatedBilling({
+      subtotal: amount,
+      discountAmount: discountAmount,
+      discountedAmount: discountedAmount,
+      due: due
+    });
+  };
 
   const fetchRecord = async () => {
     try {
@@ -339,7 +375,7 @@ export default function ShopRecordDetail() {
         </div>
       </div> */}
 
-      {/* Main Content - Rest of your component remains the same */}
+      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:grid-cols-1">
         {/* Left Column - Customer & Exam Info */}
         <div className="lg:col-span-2 space-y-6 print:space-y-4">
@@ -450,7 +486,7 @@ export default function ShopRecordDetail() {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {/* DV Row */}
                     <tr>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">Dv</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">DV</td>
                       
                       {/* Right Eye DV */}
                       <td className="px-3 py-2 text-center text-sm text-gray-900">
@@ -481,11 +517,11 @@ export default function ShopRecordDetail() {
                       </td>
                     </tr>
                     
-                    {/* Add Row */}
+                    {/* ADD Row */}
                     <tr>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">Add</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r">ADD</td>
                       
-                      {/* Right Eye Add */}
+                      {/* Right Eye ADD */}
                       <td className="px-3 py-2 text-center text-sm text-gray-900">
                         {record.right_eye?.add?.sph || '-'}
                       </td>
@@ -499,7 +535,7 @@ export default function ShopRecordDetail() {
                         {record.right_eye?.add?.va || '-'}
                       </td>
                       
-                      {/* Left Eye Add */}
+                      {/* Left Eye ADD */}
                       <td className="px-3 py-2 text-center text-sm text-gray-900">
                         {record.left_eye?.add?.sph || '-'}
                       </td>
@@ -589,39 +625,62 @@ export default function ShopRecordDetail() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <p className="text-sm font-medium text-gray-500">Amount</p>
+                <p className="text-sm font-medium text-gray-500">Total Amount</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(record.billing?.amount)}
+                  {formatCurrency(calculatedBilling.subtotal)}
                 </p>
               </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500">Paid</p>
-                <p className="text-xl font-semibold text-gray-900">
-                  {formatCurrency(record.billing?.paid)}
-                </p>
-              </div>
+              
               {record.billing?.discount > 0 && (
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Discount</p>
-                  <p className="text-lg font-semibold text-red-600">
-                    {record.billing?.discount}%
+                  <p className="text-sm font-medium text-gray-500">
+                    Discount ({record.billing.discountType === 'percentage' ? '%' : 'Rs'})
                   </p>
+                  <div className="flex items-baseline">
+                    <p className="text-lg font-semibold text-red-600 mr-2">
+                      - {formatCurrency(calculatedBilling.discountAmount)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      ({record.billing.discountType === 'percentage' 
+                        ? `${record.billing.discount}%` 
+                        : `${record.billing.discount}%`})
+                    </p>
+                  </div>
                 </div>
               )}
+              
+              <div>
+                <p className="text-sm font-medium text-gray-500">Discounted Amount</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {formatCurrency(calculatedBilling.discountedAmount)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-500">Paid Amount</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {formatCurrency(record.billing?.paid || 0)}
+                </p>
+              </div>
+
               <div>
                 <p className="text-sm font-medium text-gray-500">Payment Method</p>
                 <p className="text-lg font-semibold text-gray-900 capitalize">
                   {record.billing?.paymentMethod || 'N/A'}
                 </p>
               </div>
+
               <div className="pt-4 border-t border-gray-200">
-                <p className="text-sm font-medium text-gray-500">Balance</p>
+                <p className="text-sm font-medium text-gray-500">Balance Due</p>
                 <p className={`text-xl font-bold ${
-                  (record.billing?.amount || 0) - (record.billing?.paid || 0) > 0
+                  calculatedBilling.due > 0
                     ? 'text-red-600'
+                    : calculatedBilling.due < 0
+                    ? 'text-yellow-600'
                     : 'text-green-600'
                 }`}>
-                  {formatCurrency((record.billing?.amount || 0) - (record.billing?.paid || 0))}
+                  {formatCurrency(Math.abs(calculatedBilling.due))}
+                  {calculatedBilling.due < 0 && ' (Overpaid)'}
                 </p>
               </div>
             </div>
