@@ -22,6 +22,8 @@ const endpoints = {
   customerStats: (id) => `/customers/${id}/stats`,
   searchCustomers: '/customers/search',
   shopCustomers: (shopId) => `/customers/shop/${shopId}`,
+  customerFamily: (id) => `/customers/${id}/family`,
+  updateCustomerFamily: (id) => `/customers/${id}/family`,
   
   // Records
   records: '/records',
@@ -36,7 +38,7 @@ const endpoints = {
   resetUserPassword: (id) => `/users/${id}/reset-password`,
   shopUsers: (shopId) => `/users/shop/${shopId}`,
   
-  // PRINT ENDPOINTS - Add these
+  // PRINT ENDPOINTS
   printRecord: (id) => `/print/records/${id}`,
   printPrescription: (id) => `/print/prescription/${id}`,
   printInvoice: (id) => `/print/invoice/${id}`,
@@ -58,7 +60,7 @@ const endpoints = {
   billingStats: '/billing/stats',
   exportBilling: '/billing/export',
   
-  // NEW PDF ENDPOINTS
+  // PDF ENDPOINTS
   printBill: (id) => `/api/billing/${id}/print`,
   generateBillPDF: (id) => `/api/billing/${id}/generate-pdf`,
   downloadBillPDF: (id) => `/api/billing/${id}/download-pdf`,

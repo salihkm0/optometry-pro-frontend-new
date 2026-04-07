@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Filter, Eye, Calendar, Download, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, Eye, Calendar, Download, Trash2, X } from 'lucide-react';
 import axiosClient from '../../../api/axiosClient';
 import endpoints from '../../../api/endpoints';
 import Pagination from '../../../components/common/Pagination';
@@ -81,10 +81,12 @@ export default function RecordList() {
           total: response.pagination?.total || 0,
           pages: response.pagination?.pages || 1,
         }));
+      } else {
+        toast.error(response.message || 'Failed to load records');
       }
     } catch (error) {
       console.error('Error fetching records:', error);
-      toast.error('Failed to load records');
+      toast.error(error.response?.data?.message || 'Failed to load records');
     } finally {
       setLoading(false);
       isFetching.current = false;
@@ -237,6 +239,7 @@ export default function RecordList() {
         shop: user.shop,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
+        search: searchQuery || undefined,
         format: 'csv',
       };
       
@@ -252,6 +255,7 @@ export default function RecordList() {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      toast.success('Records exported successfully');
     } catch (error) {
       console.error('Error exporting records:', error);
       toast.error('Failed to export records');
@@ -328,7 +332,7 @@ export default function RecordList() {
               <option value="">All Types</option>
               {examinationTypes.map(type => (
                 <option key={type} value={type}>
-                  {type.replace('_', ' ')}
+                  {type.replace('_', ' ').toUpperCase()}
                 </option>
               ))}
             </select>
@@ -369,8 +373,8 @@ export default function RecordList() {
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by customer name, phone, or record ID..."
-                className="input-field pl-10"
+                placeholder="Search by customer name, phone, email, record ID, or invoice number..."
+                className="input-field pl-10 pr-10"
               />
               {searchQuery && (
                 <button
@@ -378,7 +382,7 @@ export default function RecordList() {
                   onClick={() => setSearchQuery('')}
                   className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
                 >
-                  ×
+                  <X className="h-4 w-4" />
                 </button>
               )}
             </div>
@@ -394,6 +398,18 @@ export default function RecordList() {
           )}
         </div>
       </div>
+
+      {/* Search Results Info */}
+      {searchQuery && !loading && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            Showing results for: <strong>"{searchQuery}"</strong>
+            {pagination.total === 0 && (
+              <span className="ml-2">- No records found</span>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* Records Table */}
       <div className="card">
@@ -421,7 +437,7 @@ export default function RecordList() {
                 Showing {records.length} of {pagination.total} records
                 {searchQuery && (
                   <span className="ml-2">
-                    for "<span className="font-medium">{searchQuery}</span>"
+                    matching "<span className="font-medium">{searchQuery}</span>"
                   </span>
                 )}
               </p>
@@ -437,6 +453,7 @@ export default function RecordList() {
                     <th className="table-header">Date</th>
                     <th className="table-header">Record ID</th>
                     <th className="table-header">Customer</th>
+                    <th className="table-header">Phone/Email</th>
                     <th className="table-header">Examination Type</th>
                     <th className="table-header">Status</th>
                     <th className="table-header">Amount</th>
@@ -445,32 +462,69 @@ export default function RecordList() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {records.map((record) => (
-                    <tr key={record._id}>
+                    <tr key={record._id} className="hover:bg-gray-50">
                       <td className="table-cell">
                         <div className="flex items-center">
                           <Calendar className="h-4 w-4 mr-2 text-gray-400" />
                           {formatDate(record.date)}
                         </div>
                       </td>
-                      <td className="table-cell font-mono text-sm">
-                        {record.recordId || 'N/A'}
+                      <td className="table-cell">
+                        <div>
+                          <p className="font-mono text-sm font-medium text-gray-900">
+                            {record.recordId || 'N/A'}
+                          </p>
+                          {record.billing?.invoiceNumber && (
+                            <p className="text-xs text-gray-500">
+                              Inv: {record.billing.invoiceNumber}
+                            </p>
+                          )}
+                        </div>
                       </td>
                       <td className="table-cell">
                         <div>
-                          <p className="font-medium">{record.customer?.name || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{record.customer?.phone || ''}</p>
+                          <Link 
+                            to={`/shop/customers/${record.customer?._id}`}
+                            className="font-medium text-gray-900 hover:text-primary-600"
+                          >
+                            {record.customer?.name || 'N/A'}
+                          </Link>
+                          {record.customer?.customerId && (
+                            <p className="text-xs text-gray-500">
+                              ID: {record.customer.customerId}
+                            </p>
+                          )}
                         </div>
                       </td>
-                      <td className="table-cell capitalize">
-                        {record.examinationType?.replace('_', ' ') || 'N/A'}
+                      <td className="table-cell">
+                        <div>
+                          <p className="text-sm">{record.customer?.phone || 'N/A'}</p>
+                          <p className="text-xs text-gray-500">
+                            {record.customer?.email || 'No email'}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="table-cell">
+                        <span className="capitalize text-sm">
+                          {record.examinationType?.replace('_', ' ') || 'N/A'}
+                        </span>
                       </td>
                       <td className="table-cell">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(record.status)}`}>
                           {record.status}
                         </span>
                       </td>
-                      <td className="table-cell font-medium">
-                        ${record.billing?.amount || '0.00'}
+                      <td className="table-cell">
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            ${record.billing?.amount?.toFixed(2) || '0.00'}
+                          </p>
+                          {record.billing?.paymentStatus && (
+                            <p className="text-xs text-gray-500 capitalize">
+                              {record.billing.paymentStatus}
+                            </p>
+                          )}
+                        </div>
                       </td>
                       <td className="table-cell">
                         <div className="flex items-center space-x-2">
@@ -483,7 +537,7 @@ export default function RecordList() {
                           </Link>
                           <Link
                             to={`/shop/records/edit/${record._id}`}
-                            className="text-gray-600 hover:text-gray-700 p-1"
+                            className="text-gray-600 hover:text-gray-700 px-2 py-1 text-sm"
                             title="Edit"
                           >
                             Edit

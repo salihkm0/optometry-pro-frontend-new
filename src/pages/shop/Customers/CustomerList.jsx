@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Search, Filter, Eye, Edit, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus, Search, Filter, Eye, Edit, Trash2, Users } from "lucide-react";
 import axiosClient from "../../../api/axiosClient";
 import endpoints from "../../../api/endpoints";
 import Pagination from "../../../components/common/Pagination";
 import { useAuthStore } from "../../../store/authStore";
 import { toast } from "react-hot-toast";
+import FamilyMembersModal from "./FamilyMembersModal";
 
 export default function CustomerList() {
   const [customers, setCustomers] = useState([]);
@@ -22,16 +23,17 @@ export default function CustomerList() {
     sex: "",
     tags: "",
   });
-  const [deletingId, setDeletingId] = useState(null); // Track which customer is being deleted
+  const [deletingId, setDeletingId] = useState(null);
+  const [familyInfo, setFamilyInfo] = useState({});
+  const [selectedCustomerForFamily, setSelectedCustomerForFamily] = useState(null);
 
   const { user } = useAuthStore();
+  const navigate = useNavigate();
 
-  // Fetch customers when page or filters change
   useEffect(() => {
     fetchCustomers();
   }, [pagination.page, filters]);
 
-  // Handle search with debounce
   useEffect(() => {
     const timer = setTimeout(() => {
       setPagination(prev => ({ ...prev, page: 1 }));
@@ -73,6 +75,8 @@ export default function CustomerList() {
             ? 1 
             : prev.page
         }));
+        
+        await fetchFamilyInfoForCustomers(response.data || []);
       }
     } catch (error) {
       console.error('Error fetching customers:', error);
@@ -82,10 +86,33 @@ export default function CustomerList() {
     }
   };
 
-  // Delete customer function
+  const fetchFamilyInfoForCustomers = async (customersList) => {
+    const familyInfoMap = {};
+    for (const customer of customersList) {
+      try {
+        const response = await axiosClient.get(endpoints.customerFamily(customer._id));
+        if (response.success && response.data.totalFamilyMembers > 0) {
+          familyInfoMap[customer._id] = {
+            count: response.data.totalFamilyMembers,
+            members: response.data.familyMembers
+          };
+        }
+      } catch (error) {
+        console.error(`Error fetching family info for ${customer._id}:`, error);
+      }
+    }
+    setFamilyInfo(familyInfoMap);
+  };
+
   const handleDeleteCustomer = async (customerId, customerName) => {
-    if (!window.confirm(`Are you sure you want to delete customer "${customerName}"? This action cannot be undone.`)) {
-      return;
+    if (familyInfo[customerId]?.count > 0) {
+      if (!window.confirm(`Customer "${customerName}" has ${familyInfo[customerId].count} family member(s). Deleting will only deactivate this customer. Do you want to proceed?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`Are you sure you want to delete customer "${customerName}"? This action cannot be undone.`)) {
+        return;
+      }
     }
 
     try {
@@ -94,21 +121,24 @@ export default function CustomerList() {
       const response = await axiosClient.delete(endpoints.customer(customerId));
       
       if (response.success) {
-        toast.success(`Customer "${customerName}" deleted successfully`);
+        toast.success(response.message || `Customer "${customerName}" processed successfully`);
         
-        // Remove the deleted customer from the state
         setCustomers(prev => prev.filter(customer => customer._id !== customerId));
         
-        // Update pagination total
         setPagination(prev => ({
           ...prev,
           total: prev.total - 1,
         }));
         
-        // If current page becomes empty, go to previous page
         if (customers.length === 1 && pagination.page > 1) {
           setPagination(prev => ({ ...prev, page: prev.page - 1 }));
         }
+        
+        setFamilyInfo(prev => {
+          const newInfo = { ...prev };
+          delete newInfo[customerId];
+          return newInfo;
+        });
       } else {
         toast.error(response.message || 'Failed to delete customer');
       }
@@ -160,7 +190,7 @@ export default function CustomerList() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
-          <p className="text-gray-600">Manage your customer database</p>
+          <p className="text-gray-600">Manage your customer database and family relationships</p>
         </div>
         <div className="flex items-center space-x-3 mt-4 sm:mt-0">
           {(searchQuery || filters.sex || filters.isActive !== "true") && (
@@ -280,6 +310,7 @@ export default function CustomerList() {
                     <th className="table-header">Name</th>
                     <th className="table-header">Contact</th>
                     <th className="table-header">Age/Gender</th>
+                    <th className="table-header">Family</th>
                     <th className="table-header">Last Visit</th>
                     <th className="table-header">Total Visits</th>
                     <th className="table-header">Actions</th>
@@ -290,13 +321,18 @@ export default function CustomerList() {
                     <tr key={customer._id}>
                       <td className="table-cell font-mono text-sm">
                         {customer.customerId || "N/A"}
-                      </td>
+                       </td>
                       <td className="table-cell">
                         <div>
                           <p className="font-medium">{customer.name}</p>
+                          {customer.relationship && (
+                            <p className="text-xs text-gray-500">
+                              {customer.relationship}
+                            </p>
+                          )}
                           {customer.tags && customer.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {customer.tags.map((tag, index) => (
+                              {customer.tags.slice(0, 2).map((tag, index) => (
                                 <span
                                   key={index}
                                   className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
@@ -304,10 +340,15 @@ export default function CustomerList() {
                                   {tag}
                                 </span>
                               ))}
+                              {customer.tags.length > 2 && (
+                                <span className="text-xs text-gray-500">
+                                  +{customer.tags.length - 2}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
-                      </td>
+                       </td>
                       <td className="table-cell">
                         <div>
                           <p>{customer.phone || "N/A"}</p>
@@ -315,7 +356,7 @@ export default function CustomerList() {
                             {customer.email || "No email"}
                           </p>
                         </div>
-                      </td>
+                       </td>
                       <td className="table-cell">
                         <div>
                           <p>{customer.age || "N/A"}</p>
@@ -323,17 +364,32 @@ export default function CustomerList() {
                             {customer.sex || ""}
                           </p>
                         </div>
-                      </td>
+                       </td>
+                      <td className="table-cell">
+                        {familyInfo[customer._id]?.count > 0 ? (
+                          <button
+                            onClick={() => setSelectedCustomerForFamily(customer)}
+                            className="inline-flex items-center text-primary-600 hover:text-primary-700"
+                          >
+                            <Users className="h-4 w-4 mr-1" />
+                            <span className="text-sm font-medium">
+                              {familyInfo[customer._id].count} member(s)
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="text-sm text-gray-400">No family</span>
+                        )}
+                       </td>
                       <td className="table-cell">
                         {customer.lastVisit
                           ? new Date(customer.lastVisit).toLocaleDateString()
                           : "Never"}
-                      </td>
+                       </td>
                       <td className="table-cell">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                           {customer.totalVisits || 0}
                         </span>
-                      </td>
+                       </td>
                       <td className="table-cell">
                         <div className="flex items-center space-x-2">
                           <Link
@@ -370,8 +426,8 @@ export default function CustomerList() {
                             )}
                           </button>
                         </div>
-                      </td>
-                    </tr>
+                       </td>
+                     </tr>
                   ))}
                 </tbody>
               </table>
@@ -390,6 +446,16 @@ export default function CustomerList() {
           </>
         )}
       </div>
+
+      {/* Family Members Modal */}
+      {selectedCustomerForFamily && (
+        <FamilyMembersModal
+          customer={selectedCustomerForFamily}
+          familyMembers={familyInfo[selectedCustomerForFamily._id]?.members || []}
+          onClose={() => setSelectedCustomerForFamily(null)}
+          onRefresh={fetchCustomers}
+        />
+      )}
     </div>
   );
 }

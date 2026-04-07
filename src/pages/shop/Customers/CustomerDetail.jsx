@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Edit, FileText, Calendar, Phone, Mail, MapPin } from 'lucide-react';
+import { ArrowLeft, Eye, Edit, FileText, Calendar, Phone, Mail, MapPin, Users, UserPlus } from 'lucide-react';
 import axiosClient from '../../../api/axiosClient';
 import endpoints from '../../../api/endpoints';
 import { formatDate, formatPhoneNumber } from '../../../utils/helpers';
 import { toast } from 'react-hot-toast';
+import FamilyMembersModal from './FamilyMembersModal';
 
 export default function ShopCustomerDetail() {
   const { id } = useParams();
@@ -13,6 +14,8 @@ export default function ShopCustomerDetail() {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('details');
+  const [familyMembers, setFamilyMembers] = useState([]);
+  const [showFamilyModal, setShowFamilyModal] = useState(false);
 
   useEffect(() => {
     fetchCustomerData();
@@ -21,13 +24,11 @@ export default function ShopCustomerDetail() {
   const fetchCustomerData = async () => {
     try {
       setLoading(true);
-      const [customerRes, recordsRes] = await Promise.all([
+      const [customerRes, recordsRes, familyRes] = await Promise.all([
         axiosClient.get(endpoints.customer(id)),
         axiosClient.get(endpoints.customerRecords(id)),
+        axiosClient.get(endpoints.customerFamily(id)),
       ]);
-
-      console.log("customerRes :", customerRes);
-      console.log("recordsRes :", recordsRes);
 
       if (customerRes.success) {
         setCustomer(customerRes.data.customer);
@@ -36,12 +37,29 @@ export default function ShopCustomerDetail() {
       if (recordsRes.success) {
         setRecords(recordsRes.data.records || []);
       }
+
+      if (familyRes.success) {
+        setFamilyMembers(familyRes.data.familyMembers || []);
+      }
     } catch (error) {
       console.error('Error fetching customer data:', error);
       toast.error('Failed to load customer data');
       navigate('/shop/customers');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateRelationship = async (relationshipData) => {
+    try {
+      const response = await axiosClient.put(endpoints.updateCustomerFamily(id), relationshipData);
+      if (response.success) {
+        toast.success('Family relationship updated successfully');
+        fetchCustomerData();
+      }
+    } catch (error) {
+      console.error('Error updating family relationship:', error);
+      toast.error(error.response?.data?.message || 'Failed to update relationship');
     }
   };
 
@@ -88,6 +106,11 @@ export default function ShopCustomerDetail() {
               }`}>
                 {customer.isActive ? 'Active' : 'Inactive'}
               </span>
+              {customer.relationship && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                  {customer.relationship}
+                </span>
+              )}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-600">
               <div className="flex items-center">
@@ -109,6 +132,15 @@ export default function ShopCustomerDetail() {
           </div>
         </div>
         <div className="mt-4 sm:mt-0 flex space-x-3">
+          {familyMembers.length > 0 && (
+            <button
+              onClick={() => setShowFamilyModal(true)}
+              className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+            >
+              <Users className="h-4 w-4 mr-2" />
+              Family ({familyMembers.length + 1})
+            </button>
+          )}
           <Link
             to={`/shop/customers/edit/${customer._id}`}
             className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
@@ -125,6 +157,35 @@ export default function ShopCustomerDetail() {
           </Link>
         </div>
       </div>
+
+      {/* Family Alert Banner */}
+      {familyMembers.length > 0 && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <Users className="h-5 w-5 text-purple-600 mt-0.5" />
+            <div className="ml-3 flex-1">
+              <h3 className="text-sm font-medium text-purple-800">Family Members</h3>
+              <p className="text-sm text-purple-700 mt-1">
+                This customer shares phone number with {familyMembers.length} other family member(s).
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {familyMembers.map(member => (
+                  <Link
+                    key={member._id}
+                    to={`/shop/customers/${member._id}`}
+                    className="inline-flex items-center px-2 py-1 bg-white border border-purple-300 rounded-md text-xs text-purple-700 hover:bg-purple-50"
+                  >
+                    {member.name}
+                    {member.relationship && (
+                      <span className="ml-1 text-purple-500">({member.relationship})</span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
@@ -159,6 +220,16 @@ export default function ShopCustomerDetail() {
           >
             Medical History
           </button>
+          <button
+            onClick={() => setActiveTab('family')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'family'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Family ({familyMembers.length})
+          </button>
         </nav>
       </div>
 
@@ -186,6 +257,12 @@ export default function ShopCustomerDetail() {
                     <dt className="text-sm font-medium text-gray-500">Date of Birth</dt>
                     <dd className="mt-1 text-sm text-gray-900">
                       {customer.dateOfBirth ? formatDate(customer.dateOfBirth, 'MMMM dd, yyyy') : 'N/A'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-gray-500">Relationship</dt>
+                    <dd className="mt-1 text-sm text-gray-900">
+                      {customer.relationship || 'Not specified'}
                     </dd>
                   </div>
                 </dl>
@@ -242,16 +319,14 @@ export default function ShopCustomerDetail() {
                   <p className="text-2xl font-semibold text-gray-900">{customer.totalVisits || 0}</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-sm font-medium text-gray-500">First Visit</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {customer.firstVisit ? formatDate(customer.firstVisit) : 'Never'}
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
                   <p className="text-sm font-medium text-gray-500">Last Visit</p>
                   <p className="text-lg font-semibold text-gray-900">
                     {customer.lastVisit ? formatDate(customer.lastVisit) : 'Never'}
                   </p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm font-medium text-gray-500">Family Members</p>
+                  <p className="text-2xl font-semibold text-gray-900">{familyMembers.length}</p>
                 </div>
               </div>
             </div>
@@ -289,18 +364,10 @@ export default function ShopCustomerDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {records.map((record) => (
                       <tr key={record._id}>
-                        <td className="table-cell">
-                          {formatDate(record.date)}
-                        </td>
-                        <td className="table-cell font-mono text-sm">
-                          {record.recordId}
-                        </td>
-                        <td className="table-cell capitalize">
-                          {record.examinationType?.replace('_', ' ')}
-                        </td>
-                        <td className="table-cell capitalize">
-                          {record.prescriptionType?.replace('_', ' ')}
-                        </td>
+                        <td className="table-cell">{formatDate(record.date)}</td>
+                        <td className="table-cell font-mono text-sm">{record.recordId}</td>
+                        <td className="table-cell capitalize">{record.examinationType?.replace('_', ' ')}</td>
+                        <td className="table-cell capitalize">{record.prescriptionType?.replace('_', ' ')}</td>
                         <td className="table-cell">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             record.status === 'completed'
@@ -312,14 +379,9 @@ export default function ShopCustomerDetail() {
                             {record.status}
                           </span>
                         </td>
-                        <td className="table-cell font-medium">
-                          ${record.billing?.amount || '0.00'}
-                        </td>
+                        <td className="table-cell font-medium">${record.billing?.amount || '0.00'}</td>
                         <td className="table-cell">
-                          <Link
-                            to={`/shop/records/${record._id}`}
-                            className="text-primary-600 hover:text-primary-700"
-                          >
+                          <Link to={`/shop/records/${record._id}`} className="text-primary-600 hover:text-primary-700">
                             View
                           </Link>
                         </td>
@@ -402,7 +464,113 @@ export default function ShopCustomerDetail() {
             </div>
           </div>
         )}
+
+        {activeTab === 'family' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900">Family Members</h3>
+              <button
+                onClick={() => setShowFamilyModal(true)}
+                className="inline-flex items-center px-3 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 text-sm"
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Manage Family
+              </button>
+            </div>
+
+            {familyMembers.length === 0 ? (
+              <div className="text-center py-12">
+                <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500">No family members found</p>
+                <p className="text-sm text-gray-400 mt-2">
+                  Family members share the same phone number
+                </p>
+                <Link
+                  to={`/shop/customers/new?phone=${customer.phone}`}
+                  className="mt-4 inline-flex items-center text-primary-600 hover:text-primary-700"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add Family Member
+                </Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Current customer card */}
+                <div className="border-2 border-primary-200 rounded-lg p-4 bg-primary-50">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h4 className="font-semibold text-gray-900">{customer.name}</h4>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-800">
+                          Primary
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 mt-1">{customer.phone}</p>
+                      {customer.relationship && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          {customer.relationship}
+                        </p>
+                      )}
+                    </div>
+                    <Link
+                      to={`/shop/customers/edit/${customer._id}`}
+                      className="text-primary-600 hover:text-primary-700"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Family members */}
+                {familyMembers.map((member) => (
+                  <div key={member._id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <Link
+                          to={`/shop/customers/${member._id}`}
+                          className="font-semibold text-gray-900 hover:text-primary-600"
+                        >
+                          {member.name}
+                        </Link>
+                        {member.relationship && (
+                          <p className="text-xs text-purple-600 mt-1">
+                            {member.relationship}
+                          </p>
+                        )}
+                        <p className="text-sm text-gray-500 mt-2">{member.phone}</p>
+                      </div>
+                      <Link
+                        to={`/shop/customers/${member._id}`}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> Family members are identified by sharing the same phone number. 
+                You can add family relationships when creating or editing customers.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Family Members Modal */}
+      {showFamilyModal && (
+        <FamilyMembersModal
+          customer={customer}
+          familyMembers={familyMembers}
+          onClose={() => setShowFamilyModal(false)}
+          onUpdate={handleUpdateRelationship}
+          onRefresh={fetchCustomerData}
+        />
+      )}
     </div>
   );
 }
